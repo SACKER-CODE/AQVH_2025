@@ -1,0 +1,195 @@
+# app.py
+# Backend logic for the BB84 QKD Simulator (Single-Page App version)
+
+import os
+import random
+from flask import Flask, render_template, request, jsonify, session
+
+# --- Flask App Initialization ---
+app = Flask(__name__)
+# A secret key is required for Flask sessions to work.
+app.secret_key = os.urandom(24)
+
+# --- BB84 Simulation Core Logic (Unchanged) ---
+
+def generate_random_bits(length):
+    """Generates a list of random bits (0s and 1s)."""
+    return [random.choice([0, 1]) for _ in range(length)]
+
+def generate_random_bases(length):
+    """Generates a list of random bases ('+' for rectilinear, 'x' for diagonal)."""
+    return [random.choice(['+', 'x']) for _ in range(length)]
+
+def encode_bits(bits, bases):
+    """Creates a list of tuples representing qubits."""
+    return list(zip(bits, bases))
+
+def measure_qubits(qubits, measurement_bases):
+    """Simulates measuring qubits with a given set of bases."""
+    measured_bits = []
+    for i, (original_bit, alice_basis) in enumerate(qubits):
+        measurement_basis = measurement_bases[i]
+        if alice_basis == measurement_basis:
+            measured_bits.append(original_bit)
+        else:
+            measured_bits.append(random.choice([0, 1]))
+    return measured_bits
+
+def simulate_eavesdropping(qubits, eve_bases):
+    """Simulates an intercept-resend attack by Eve."""
+    eve_measured_bits = measure_qubits(qubits, eve_bases)
+    resent_qubits = encode_bits(eve_measured_bits, eve_bases)
+    return resent_qubits, eve_measured_bits
+
+# --- Flask Routes (Refactored for API) ---
+
+@app.route('/')
+def index():
+    """Renders the main single-page application."""
+    session.clear() # Clear any old data on page load
+    return render_template('index.html')
+
+@app.route('/api/start', methods=['POST'])
+def api_start():
+    """API endpoint to start the simulation and generate Alice's data."""
+    data = request.get_json()
+    try:
+        key_length = int(data['key_length'])
+        if not 4 <= key_length <= 64:
+             return jsonify({'error': 'Key length must be between 4 and 64.'}), 400
+    except (ValueError, KeyError, TypeError):
+        return jsonify({'error': 'Invalid input. Please provide a valid key_length.'}), 400
+
+    initial_bits_length = key_length * 4
+    alice_bits = generate_random_bits(initial_bits_length)
+    alice_bases = generate_random_bases(initial_bits_length)
+
+    # Store in session for subsequent API calls
+    session['key_length'] = key_length
+    session['initial_bits_length'] = initial_bits_length
+    session['alice_bits'] = alice_bits
+    session['alice_bases'] = alice_bases
+
+    return jsonify({
+        'key_length': key_length,
+        'bits_length': initial_bits_length,
+        'alice_bits': "".join(map(str, alice_bits)),
+        'alice_bases': "".join(alice_bases)
+    })
+
+@app.route('/api/run_channel', methods=['POST'])
+def api_run_channel():
+    """API endpoint to simulate the quantum channel (with/without Eve) and Bob's measurement."""
+    data = request.get_json()
+    eavesdrop = data.get('eavesdrop', False)
+    session['eavesdrop'] = eavesdrop
+
+    if 'alice_bits' not in session:
+        return jsonify({'error': 'Simulation not started. Please start over.'}), 400
+
+    alice_bits = session['alice_bits']
+    alice_bases = session['alice_bases']
+    initial_bits_length = session['initial_bits_length']
+
+    qubits_from_alice = encode_bits(alice_bits, alice_bases)
+    
+    response_data = {'eavesdrop': eavesdrop}
+
+    if eavesdrop:
+        eve_bases = generate_random_bases(initial_bits_length)
+        qubits_for_bob, eve_measured_bits = simulate_eavesdropping(qubits_from_alice, eve_bases)
+        session['eve_bases'] = eve_bases
+        response_data['eve_bases'] = "".join(eve_bases)
+        response_data['eve_bits'] = "".join(map(str, eve_measured_bits))
+    else:
+        qubits_for_bob = qubits_from_alice
+
+    bob_bases = generate_random_bases(initial_bits_length)
+    bob_measured_bits = measure_qubits(qubits_for_bob, bob_bases)
+
+    session['bob_bases'] = bob_bases
+    session['bob_measured_bits'] = bob_measured_bits
+
+    response_data['bob_bases'] = "".join(bob_bases)
+    response_data['bob_bits'] = "".join(map(str, bob_measured_bits))
+
+    return jsonify(response_data)
+
+@app.route('/api/sift', methods=['POST'])
+def api_sift():
+    """API endpoint to perform basis comparison."""
+    if 'alice_bases' not in session:
+        return jsonify({'error': 'Session expired. Please start over.'}), 400
+
+    alice_bases = session['alice_bases']
+    bob_bases = session['bob_bases']
+
+    comparison_data = []
+    match_count = 0
+    for i in range(len(alice_bases)):
+        is_match = alice_bases[i] == bob_bases[i]
+        if is_match:
+            match_count += 1
+        comparison_data.append({
+            'qubit_index': i + 1,
+            'alice_basis': alice_bases[i],
+            'bob_basis': bob_bases[i],
+            'is_match': is_match
+        })
+    
+    return jsonify({'comparisons': comparison_data, 'match_count': match_count})
+
+@app.route('/api/results', methods=['POST'])
+def api_results():
+    """API endpoint to calculate and return the final results."""
+    if 'alice_bits' not in session:
+        return jsonify({'error': 'Session expired. Please start over.'}), 400
+
+    alice_bits = session['alice_bits']
+    alice_bases = session['alice_bases']
+    bob_bases = session['bob_bases']
+    bob_measured_bits = session['bob_measured_bits']
+    key_length = session['key_length']
+
+    sifted_key_alice, sifted_key_bob = [], []
+    for i in range(len(alice_bases)):
+        if alice_bases[i] == bob_bases[i]:
+            sifted_key_alice.append(alice_bits[i])
+            sifted_key_bob.append(bob_measured_bits[i])
+
+    error_count = 0
+    # Use a larger sample for QBER check to make it more reliable
+    check_length = min(len(sifted_key_alice), key_length * 2) 
+    if check_length > 0:
+        for i in range(check_length):
+            if sifted_key_alice[i] != sifted_key_bob[i]:
+                error_count += 1
+        qber = (error_count / check_length) * 100
+    else:
+        qber = 0
+
+    final_key_alice = sifted_key_alice[:key_length]
+    # Security check: QBER must be low AND we must have enough bits for the final key
+    is_secure = qber < 15 and len(final_key_alice) == key_length
+
+    return jsonify({
+        'sifted_key_alice': "".join(map(str, sifted_key_alice)),
+        'sifted_key_bob': "".join(map(str, sifted_key_bob)),
+        'qber': f"{qber:.2f}",
+        'final_key_alice': "".join(map(str, final_key_alice)),
+        'is_secure': is_secure,
+        'eavesdrop': session.get('eavesdrop', False)
+    })
+
+
+# --- Main Execution ---
+if __name__ == '__main__':
+    # Creates the necessary folders if they don't exist
+    if not os.path.exists('templates'): os.makedirs('templates')
+    if not os.path.exists('static'): os.makedirs('static')
+    
+    
+    print("Flask app and single-page templates are set up. Starting server...")
+    print("Open your browser and go to http://127.0.0.1:5000")
+    
+    app.run(debug=True)

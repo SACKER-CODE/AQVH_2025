@@ -1,0 +1,172 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BB84 QKD Simulator</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Step 1: Setup -->
+        <div id="step1" class="step active">
+            <h1>Step 1: Setup Simulation</h1>
+            <div class="explanation-section">
+                <p>Welcome to the BB84 Quantum Key Distribution Simulator. This protocol, developed by Charles Bennett and Gilles Brassard in 1984, uses quantum mechanics to securely exchange a cryptographic key.</p>
+                <p>The core principle is that measuring a quantum state can disturb it. This disturbance allows the legitimate users, Alice and Bob, to detect the presence of an eavesdropper, Eve.</p>
+            </div>
+            <div class="form-group">
+                <label for="key_length">Desired Final Key Length (n):</label>
+                <input type="number" id="key_length" name="key_length" min="4" max="64" value="8" required>
+                <button id="startBtn" class="btn">Start Simulation &raquo;</button>
+            </div>
+            <div id="error-step1" class="error-message"></div>
+        </div>
+
+        <!-- Step 2: Alice's Preparation -->
+        <div id="step2" class="step">
+            <h1>Step 2: Alice's Preparation</h1>
+            <div class="explanation-section">
+                <p>Alice, the sender, begins by generating two random sequences: a string of classical bits (the message she wants to eventually protect) and a string of bases to encode them.</p>
+                <p>She uses two different bases: the <strong>Rectilinear (+)</strong> basis and the <strong>Diagonal (x)</strong> basis. For each bit, she randomly picks one basis to encode it as a qubit (e.g., a polarized photon).</p>
+                <button class="btn reveal-btn">Show Alice's Data &raquo;</button>
+            </div>
+            <div class="details-section">
+                <div id="step2-info" class="info-box"></div>
+                <div class="data-section">
+                    <h2>Alice's Data</h2>
+                    <div class="data-block">
+                        <label id="alice-bits-label"></label>
+                        <div id="alice-bits" class="data-string bits"></div>
+                    </div>
+                    <div class="data-block">
+                        <label id="alice-bases-label"></label>
+                        <div id="alice-bases" class="data-string bases"></div>
+                        <small>(+ = Rectilinear, x = Diagonal)</small>
+                    </div>
+                </div>
+                <button id="goToStep3Btn" class="btn">Send Qubits to Bob &raquo;</button>
+            </div>
+        </div>
+
+        <!-- Step 3: The Quantum Channel -->
+        <div id="step3" class="step">
+            <h1>Step 3: The Quantum Channel</h1>
+            <div class="explanation-section">
+                <p>Alice sends her encoded qubits to Bob over a quantum channel. This is the most vulnerable part of the process. An eavesdropper, Eve, may try to intercept the qubits.</p>
+                <p>According to the <strong>No-Cloning Theorem</strong>, Eve cannot create an exact copy of an unknown quantum state. She must measure it, which risks disturbing the original state, and then send a new qubit to Bob. This act of measuring is how she can be detected.</p>
+                <button class="btn reveal-btn">Choose Channel Security &raquo;</button>
+            </div>
+            <div class="details-section">
+                <p>Do you want to simulate an eavesdropper on the channel?</p>
+                <div class="button-group">
+                    <button id="eavesdropBtn" class="btn btn-danger">Yes, Eve is listening</button>
+                    <button id="noEavesdropBtn" class="btn btn-safe">No, the channel is secure</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step 4: Bob's Measurement -->
+        <div id="step4" class="step">
+            <h1>Step 4: Bob's Measurement</h1>
+            <div class="explanation-section">
+                <p>Bob, the receiver, does not know which basis Alice used for each qubit. So, he generates his own random sequence of bases and uses them to measure the incoming qubits.</p>
+                <p><strong>The key insight:</strong> If Bob chooses the <em>same</em> basis as Alice for a given qubit, he will measure the correct bit value. If he chooses the <em>wrong</em> basis, his result will be completely random (a 50% chance of being right or wrong).</p>
+                <button class="btn reveal-btn">Show Bob's Measurements &raquo;</button>
+            </div>
+            <div class="details-section">
+                <div id="step4-info"></div>
+                <div id="eve-section" class="data-section" style="display: none;">
+                    <h2>Eve's Actions</h2>
+                    <div class="data-block">
+                        <label>Eve's Random Bases:</label>
+                        <div id="eve-bases" class="data-string bases"></div>
+                    </div>
+                    <div class="data-block">
+                        <label>Eve's Measured Bits:</label>
+                        <div id="eve-bits" class="data-string bits"></div>
+                    </div>
+                </div>
+                <div class="data-section">
+                    <h2>Bob's Actions</h2>
+                    <p>Bob measures the qubits he received using his own set of randomly generated bases.</p>
+                    <div class="data-block">
+                        <label>Bob's Random Bases:</label>
+                        <div id="bob-bases" class="data-string bases"></div>
+                    </div>
+                    <div class="data-block">
+                        <label>Bob's Measured Bits:</label>
+                        <div id="bob-bits" class="data-string bits"></div>
+                    </div>
+                </div>
+                <button id="goToStep5Btn" class="btn">Compare Bases &raquo;</button>
+            </div>
+        </div>
+        
+        <!-- Step 5: Sifting -->
+        <div id="step5" class="step">
+            <h1>Step 5: The Sifting Process</h1>
+            <div class="explanation-section">
+                <p>Alice and Bob now communicate over a public classical channel (like a phone call). They don't reveal their bits, but they do reveal their sequence of bases.</p>
+                <p>They compare their basis lists and discard all the bits where their bases did not match. The remaining bits form their "sifted key". On average, they will agree on bases 50% of the time.</p>
+                <button class="btn reveal-btn">Show Sifting Table &raquo;</button>
+            </div>
+            <div class="details-section">
+                <p>Total matches found: <strong id="match-count"></strong></p>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Qubit #</th>
+                                <th>Alice's Basis</th>
+                                <th>Bob's Basis</th>
+                                <th>Result</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sifting-table-body"></tbody>
+                    </table>
+                </div>
+                <button id="goToResultsBtn" class="btn">Reveal Sifted Keys &raquo;</button>
+            </div>
+        </div>
+
+        <!-- Step 6: Results -->
+        <div id="results" class="step">
+             <h1>Step 6: Final Results</h1>
+             <div class="explanation-section">
+                <p>To detect Eve, Alice and Bob publicly compare a small, randomly chosen subset of their sifted keys. If the bits match, they can be confident the rest of the key is secure. If there are mismatches, an eavesdropper was likely present.</p>
+                <p>The percentage of mismatched bits is the <strong>Quantum Bit Error Rate (QBER)</strong>. If the QBER is above a certain threshold, they abort the protocol and start over. If it's zero (or very low), they remove the publicly revealed bits and use the rest as their shared secret key.</p>
+                <button class="btn reveal-btn">Show Final Results &raquo;</button>
+             </div>
+             <div class="details-section">
+                <div class="data-section">
+                    <h2>Sifted Keys</h2>
+                    <div class="data-block">
+                        <label>Alice's Sifted Key:</label>
+                        <div id="sifted-key-alice" class="data-string bits"></div>
+                    </div>
+                    <div class="data-block">
+                        <label>Bob's Sifted Key:</label>
+                        <div id="sifted-key-bob" class="data-string bits"></div>
+                    </div>
+                </div>
+                <div class="data-section">
+                    <h2>Security Check</h2>
+                    <div class="qber-box">
+                        Quantum Bit Error Rate (QBER): <strong id="qber-value"></strong>
+                    </div>
+                    <div id="results-info"></div>
+                </div>
+                <div class="data-section">
+                    <h2>Final Shared Secret Key</h2>
+                    <div id="final-key-info"></div>
+                    <div id="final-key-display" class="final-key"></div>
+                </div>
+                <button onclick="window.location.reload()" class="btn">Run Simulation Again</button>
+            </div>
+        </div>
+    </div>
+    <script src="/static/script.js"></script>
+</body>
+</html>
